@@ -1,22 +1,35 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# # Data Pipelines & Data Analytics Lifecycle
+# # Forecasting the Wind Power Production in Orkney
+# 
+
 # **Dependencies**
-import os
+# 
+# If you've just created this workspace, install mlflow by typing the command below in the Terminal. If you already did this in a previous session, there is no need to install it again.
+# 
+# ```
+# pip install mlflow
+# ```
+# 
+# Now let's import all libraries necessary for this project.
+# The first time you will run a cell in this notebook, a dialogue box will appear asking if you want to Install/enable suggested extentions: python and jupyter. Go ahead and once that is finished select the created kernel.
+
+# In[1]:
+
+
 import mlflow
-import subprocess
-import requests
-import time
-import optuna
+import os
+os.environ.pop("MLFLOW_RUN_ID", None)
+# You will probably need these
 import pandas as pd
 import numpy as np
 import seaborn as sns
-import matplotlib.pyplot as plt
-import sklearn
+from sklearn.pipeline import Pipeline
 
 # This are for example purposes. You may discard them if you don't use them.
-
-from sklearn.pipeline import Pipeline
+import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import RobustScaler
 from sklearn.metrics import mean_absolute_error, r2_score
@@ -31,37 +44,40 @@ from sklearn.tree import DecisionTreeRegressor
 from sklearn.svm import SVR
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.model_selection import GridSearchCV
+import optuna
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import cross_validate
 
-# Set the tracking URI globally for this process
-os.environ["MLFLOW_TRACKING_URI"] = "http://127.0.0.1:5000"
 
-def ensure_mlflow():
-    try:
-        # Check if tracking server is up
-        requests.get("http://127.0.0.1:5000", timeout=2)
-    except:
-        print("MLflow Server not found. Launching...")
-        subprocess.Popen(
-            ["mlflow", "server", "--host", "127.0.0.1", "--port", "5000"],
-            creationflags=subprocess.CREATE_NEW_CONSOLE
-        )
-        time.sleep(5)
+### TODO -> HERE YOU CAN ADD ANY OTHER LIBRARIES YOU MAY NEED ###
 
-# Call this at the top of your script
-ensure_mlflow()
 
+# 
+# 
 # ## Data exploration
+# 
+# 
+
+# In[2]:
+
+
 # Load DF's
 power_df = pd.read_csv('data/power.csv', parse_dates=["time"], index_col="time")
 wind_df = pd.read_csv('data/weather.csv', parse_dates=["time"], index_col="time")
+
+
+# In[3]:
+
 
 # Drop empty columns and remove unnecessary features
 power_df = power_df.dropna()
 wind_df = wind_df.dropna()
 power_df = power_df.drop(columns=['ANM', 'Non-ANM'])
 wind_df = wind_df.drop(columns = ['Lead_hours', 'Source_time'])
+
+
+# In[4]:
+
 
 # Sort by 'time' (required for merge_asof)
 power_df = power_df.sort_values('time')
@@ -73,7 +89,11 @@ merged_df = pd.merge_asof(power_df, wind_df, on='time', direction='backward')
 
 upsampled_df = merged_df.dropna()
 
-##Exploratory Data Analysis
+
+# ### Understanding the data: EDA
+
+# In[5]:
+
 
 # Subplots
 fig, ax = plt.subplots(1,3, figsize=(25,4))
@@ -110,7 +130,7 @@ ax[2].tick_params(axis='x', labelrotation = 45)
 ax[2].set_title("Speed and Power per Direction");
 
 
-# In[11]:
+# In[6]:
 
 
 speed_counts = upsampled_df['Speed'].value_counts().head(10)
@@ -124,7 +144,7 @@ plt.tight_layout()
 plt.savefig('speed_freq.png')
 
 
-# In[12]:
+# In[7]:
 
 
 speed_counts = upsampled_df['Total'].value_counts().head(10)
@@ -138,7 +158,7 @@ plt.tight_layout()
 plt.savefig('speed_freq.png')
 
 
-# In[13]:
+# In[8]:
 
 
 # 3. Correlation/Joint Plot to see recurring pairs
@@ -147,7 +167,7 @@ sns.jointplot(x='Speed', y='Total', data=upsampled_df, kind='hex', cmap='viridis
 plt.savefig('speed_total_joint.png')
 
 
-# In[14]:
+# In[9]:
 
 
 # 1. Distribution of Speed and Total
@@ -160,16 +180,20 @@ plt.tight_layout()
 plt.savefig('distribution.png')
 
 
-# In[15]:
+# In[10]:
 
-#Makes sure the df returns to orignal form after imaging
+
 df_engineered = upsampled_df
 df_engineered = df_engineered.drop(columns = 'time')
 
-# In[16]:
 
 # Then apply a tail cut
+
 # Execute a conservative 15% split on the data itself
+
+# In[11]:
+
+
 test_size = int(len(df_engineered)*0.15)
 train_size = len(df_engineered) - test_size
 
@@ -180,10 +204,11 @@ print(f"Training set: {len(trainingDF)} rows")
 print(f"Test set: {len(finalTestDF)} rows")
 
 
-#Pipeline
-# In[17]:
+# ___PETER PIPELINE IDEAS___
 
-#Cyclical Encoding
+# In[12]:
+
+
 class WindDirectionEncoder(BaseEstimator, TransformerMixin):
     def __init__(self, column_name='Direction'):
         self.column_name = column_name
@@ -221,9 +246,9 @@ class WindDirectionEncoder(BaseEstimator, TransformerMixin):
         return X.drop(columns=[self.column_name])
 
 
-# In[18]:
+# In[13]:
 
-##Non-Time-Series Pipeline
+
 regressionTree_pipeline = Pipeline([
     ('Wind_Encoding', WindDirectionEncoder(column_name='Direction')),
     ('imputer', SimpleImputer(strategy='median')), # Preprocessing
@@ -231,30 +256,31 @@ regressionTree_pipeline = Pipeline([
 ])
 
 
-# In[19]:
+# In[14]:
 
-#Split y and X in the Data
+
+# 2. Split your data (Standard practice)
 y = trainingDF['Total']
 X = trainingDF.drop('Total', axis=1)
 
 
-# Train test split
+# Split the data so we can test how well our model performs in unseen data
 X_train, X_test, y_train, y_test = train_test_split(X, y) # -> You might want to use another split method
 
-# Train the model
+# Train our model
 regressionTree_pipeline.fit(X_train, y_train)
 
-# Evaluate using MAE as a metric
+# Evaluate the model, using MAE as a metric
 mae = mean_absolute_error(regressionTree_pipeline.predict(X_test), y_test)
 print(mae)
 
 
-# Predictions made on models which assume time series is not important.
+# Predictions made on models which assume time seriess is not important.
 
-# In[20]:
+# In[15]:
 
 
-# Doesn't work on the upsampled data because it scramble 100,000 data points
+# Doesn't work on the upsamped data because it scramble 100,000 data points
 predictions = regressionTree_pipeline.predict(X_test)
 
 plt.figure(figsize=(15, 4))
@@ -264,9 +290,9 @@ plt.legend()
 plt.show()
 
 
-## Pipeline Acounting for Time-Series##
+# ##Acounting for Time-Series##
 
-# In[21]:
+# In[16]:
 
 
 regressionTree_pipeline_TS = Pipeline([
@@ -276,19 +302,19 @@ regressionTree_pipeline_TS = Pipeline([
 ])
 
 
-# In[22]:
+# In[17]:
 
 
-# Prepare Data
+# 1. Prepare Data
 trainingDF = trainingDF.dropna().sort_index()
 y_ts = trainingDF['Total']
 X_ts = trainingDF.drop('Total', axis=1)
 
-# Define TSS
+# 2. Define TSS
 tss = TimeSeriesSplit(n_splits=5)
 mae_scores = []
 
-# Implementation of Cross-Validation
+# 3. Implementation of Cross-Validation
 for train_index, test_index in tss.split(X_ts):
     # Split the data for this specific fold
     X_train_fold, X_test_fold = X_ts.iloc[train_index], X_ts.iloc[test_index]
@@ -304,48 +330,51 @@ for train_index, test_index in tss.split(X_ts):
 
     print(f"Fold MAE: {fold_mae}")
 
-# Final Result
+# 4. Final Result
 print(f"Average Time-Series CV MAE: {np.mean(mae_scores)}")
 
 
 # In[18]:
 
-#Hyperparameter Tuning
-# def objective(trial):
-#     # Suggest ranges for Decision Tree hyperparameters
-#     # Use integers for depth and split constraints
-#     max_depth = trial.suggest_int('max_depth', 2, 32)
-#     min_samples_split = trial.suggest_int('min_samples_split', 2, 20)
-#     min_samples_leaf = trial.suggest_int('min_samples_leaf', 1, 20)
-#     max_features = trial.suggest_categorical('max_features', [None, 'sqrt', 'log2'])
 
-#     # Update the pipeline
-#     regressionTree_pipeline_TS.set_params(
-#         regressor__max_depth=max_depth,
-#         regressor__min_samples_split=min_samples_split,
-#         regressor__min_samples_leaf=min_samples_leaf,
-#         regressor__max_features=max_features
-#     )
+def objective(trial):
+    # 1. Suggest ranges for Decision Tree hyperparameters
+    # We use integers for depth and split constraints
+    max_depth = trial.suggest_int('max_depth', 2, 32)
+    min_samples_split = trial.suggest_int('min_samples_split', 2, 20)
+    min_samples_leaf = trial.suggest_int('min_samples_leaf', 1, 20)
+    max_features = trial.suggest_categorical('max_features', [None, 'sqrt', 'log2'])
 
-#     # Scoring remains 'neg_mean_absolute_error' to minimize the positive MAE
-#     score = cross_val_score(regressionTree_pipeline_TS, X_ts, y_ts, cv=tss, scoring='neg_mean_absolute_error', n_jobs=-1)
-#     mae = -score.mean()
-#     return mae
+    # 2. Update your pipeline (Assuming your regressor step is named 'regressor')
+    regressionTree_pipeline_TS.set_params(
+        regressor__max_depth=max_depth,
+        regressor__min_samples_split=min_samples_split,
+        regressor__min_samples_leaf=min_samples_leaf,
+        regressor__max_features=max_features
+    )
 
-# # Create a study and optimize
-# study = optuna.create_study(direction='minimize')
-# study.optimize(objective, n_trials=500) # Trees are faster than SVR; 100 trials is a good start
+    # 3. Use your existing TimeSeriesSplit (tss)
+    # Scoring remains 'neg_mean_absolute_error' to minimize the positive MAE
+    score = cross_val_score(regressionTree_pipeline_TS, X_ts, y_ts, cv=tss, scoring='neg_mean_absolute_error', n_jobs=-1)
+    mae = -score.mean()
 
-# print(f"Best parameters: {study.best_params}")
-# print(f"Best MAE: {study.best_value}")
+    return mae
 
-# all hosting local servers was done on anaconda powershell 
+# 4. Create a study and optimize
+study = optuna.create_study(direction='minimize')
+study.optimize(objective, n_trials=500) # Trees are faster than SVR; 100 trials is a good start
+
+print(f"Best parameters: {study.best_params}")
+print(f"Best MAE: {study.best_value}")
+
 
 # Anaconda PowerShell Prompt
+# 
 # conda activate ml
+# 
 # mlflow server --host 127.0.0.1 --port 5000
 
-# In[23]:
+# In[26]:
 
 
 # Start an MLflow run
@@ -357,7 +386,7 @@ mlflow.set_tracking_uri("http://127.0.0.1:5000") # We set the MLFlow UI to displ
 tscv = TimeSeriesSplit(n_splits=5)
 
 # Set the experiment and run name
-experiment_name = "RegressionTree_TS" # Think how to best organise experiments - for example by model type
+experiment_name = "wind-power-model" # Think how to best organise experiments - for example by model type
 run_name = "RT_TS_100K" # Give explicit names 
 
 mlflow.set_experiment(experiment_name)
@@ -386,65 +415,55 @@ with mlflow.start_run(run_name=run_name) as run:
 
     # 5. Final Fit (optional: fit on all data to save the final model)
     regressionTree_pipeline_TS.fit(X_ts, y_ts)
-    mlflow.sklearn.log_model(regressionTree_pipeline_TS, "model")
+    mlflow.sklearn.log_model(regressionTree_pipeline_TS, "model", registered_model_name="wind-power-model")
 
     print(f"Cross-Validated MAE: {mean_mae:.4f} (+/- {std_mae:.4f})")
 
 
 # ##Preprocessing FUTURE FILES##
 
-# In[24]:
+# In[20]:
 
 
 y_final = finalTestDF['Total']
 X_final = finalTestDF.drop('Total', axis=1)
 
 
-# In[25]:
-
-
-mlflow.set_tracking_uri("http://127.0.0.1:5000")
-
-
-# In[26]:
+# In[27]:
 
 
 #Load final model
-model_name = "RT_TS_100K"
-model_version = 3
+model_name = "wind-power-model"
+model_version = 1
 
 model_uri = f"models:/{model_name}/{model_version}"
 model = mlflow.pyfunc.load_model(model_uri=model_uri)
 
-#Run final experiment
-experiment_name = "Final_MODELS"
-mlflow.set_experiment(experiment_name)
+# #Run final experiment
+# experiment_name = "Final_MODELS"
+# mlflow.set_experiment(experiment_name)
 
-#Run Inference and Log Metrics
-with mlflow.start_run(run_name="RT_FINAL"):
+# 4. Run Inference and Log Metrics
+# We start a new run specifically for this evaluation
 
-    # Generate predictions on the unseen data
-    predictions = model.predict(X_final)
 
-    # Calculate Standard Metrics
-    mae = mean_absolute_error(y_final, predictions)
-    r2 = r2_score(y_final, predictions)
+# Generate predictions on the unseen data
+predictions = model.predict(X_final)
 
-    # Calculate Adjusted R-squared
+# Calculate Standard Metrics
+mae = mean_absolute_error(y_final, predictions)
+r2 = r2_score(y_final, predictions)
+
+# Calculate Adjusted R-squared
     # n = number of samples, k = number of features
-    n = X_final.shape[0]
-    k = X_final.shape[1]
-    adj_r2 = 1 - ((1 - r2) * (n - 1) / (n - k - 1))
+n = X_final.shape[0]
+k = X_final.shape[1]
+adj_r2 = 1 - ((1 - r2) * (n - 1) / (n - k - 1))
 
-    # Log metrics to MLflow
-    mlflow.log_metric("MAE", mae)
-    mlflow.log_metric("R2", r2)
-    mlflow.log_metric("Adjusted_R2", adj_r2)
-
-    print(f"Inference complete. Adjusted R2: {adj_r2:.4f}")
+print(f"Inference complete. MAE:{mae} r2:{r2} Adjusted R2: {adj_r2:.4f}")
 
 
-# In[27]:
+# In[28]:
 
 
 predictions =regressionTree_pipeline.predict(X_final)
@@ -456,26 +475,23 @@ plt.legend()
 plt.show()
 
 
-# In[28]:
+# In[36]:
 
 
 future_df = pd.read_csv("data/future.csv")
 future_df["time"] = pd.to_datetime(future_df["time"], utc=True)
 future_df["Source_time"] = pd.to_datetime(future_df["Source_time"], unit="s", utc=True)
-future_df.drop(columns=['time','Lead_hours','Source_time'])
+future_df = future_df.drop(columns=['time','Lead_hours','Source_time'])
 
 
-# In[29]:
+# In[37]:
 
-
-model_name = "RT_TS_100K"
-model_version = 3
 
 model_uri = f"models:/{model_name}/{model_version}"
 model = mlflow.pyfunc.load_model(model_uri=model_uri)
 
-X_forecast = future_df
-predictions = model.predict(X_forecast)
+
+predictions = model.predict(future_df)
 
 predictions_df = future_df[["Speed"]].copy()
 predictions_df["Predicted_Power"] = predictions
@@ -484,12 +500,5 @@ print(predictions_df.head())
 
 predictions_df
 
-
-# Worked in PowerShell for Serving here is how to run things in powershell
-
-##powershell: 
-# $env:MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
-# mlflow models serve -m "models:/RT_TS_100K/3" --port 5001 --host 127.0.0.1 --env-manager local
-#curl.exe -X POST "http://127.0.0.1:5001/invocations" -H "Content-Type: application/json" --% -d "{\"dataframe_split\": {\"columns\": [\"Total\", \"Speed\", \"Direction\"], \"data\": [[30, 12, \"NNE\"]]}}"
 
 
